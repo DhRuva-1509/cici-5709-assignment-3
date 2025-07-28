@@ -7,30 +7,45 @@ import {
 } from '../utils/validateExistence.ts';
 import { Patient } from '../models/auth.model.ts';
 import { scheduleMeeting } from './meeting.controller.ts';
+import NodeCache from 'node-cache';
 
+const cache = new NodeCache({ stdTTL: 10 });
+
+//Added Paginated and lean for optimiztion
 export const getAllAppointments = async (
   req: Request,
   res: Response
 ): Promise<any> => {
   try {
-    const appointments = await Appointment.find();
+    const limit = parseInt(req.query.limit as string) || 10;
+    const page = parseInt(req.query.page as string) || 1;
+
+    const appointments = await Appointment.find()
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
     return res.status(200).json(appointments);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
 };
 
+//Added lean and selective population
 export const getAppointmentById = async (
   req: Request,
   res: Response
 ): Promise<any> => {
   try {
-    const appointment = await Appointment.findById(req.params.id).populate(
-      'patientId doctorId'
-    );
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patientId', 'firstName lastName')
+      .populate('doctorId', 'firstName lastName specialization')
+      .lean();
+
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
     }
+
     return res.status(200).json(appointment);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -176,28 +191,22 @@ export const deleteAppointment = async (
   }
 };
 
-export const getAppointmentsByPatientId = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
-  const { patientId } = req.params;
+//used caching
+export const getAppointmentsByPatientId = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
+  const patientId = req.params.patientId;
+  const cacheKey = `appointments:${patientId}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached) return res.status(200).json(cached);
 
   try {
-    // 1. Find patient by custom patientId
-    const patient = await Patient.findOne({ patientId }).select('-password');
-    if (!patient) {
-      return res.status(404).json({ message: 'Patient not found' });
-    }
-
-    // 2. Find appointments where patientId matches (not _id)
-    const appointments = await Appointment.find({ patientId }).populate('meetingId');
-
-    // 3. Respond with both
-    return res.status(200).json({
-      patient,
-      appointments,
-    });
-  } catch (err: any) {
-    return res.status(500).json({
-      message: 'Failed to fetch patient or appointments',
-      error: err.message,
-    });
+    const appointments = await Appointment.find({ patientId }).lean();
+    cache.set(cacheKey, appointments);
+    return res.status(200).json(appointments);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
   }
 };
