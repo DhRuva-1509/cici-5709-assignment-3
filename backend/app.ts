@@ -14,16 +14,20 @@ import healthRecordsRoutes from './routes/health-records.routes.ts';
 import fileRoutes from './routes/file.routes.ts';
 import * as http from "node:http";
 import { Server as SocketIOServer } from 'socket.io';
-import {handleSocketConnection} from "./utils/socket.ts";
+import { handleSocketConnection } from "./utils/socket.ts";
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 const server = http.createServer(app);
 
-// Setup WebSocket server
+app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", "default-src 'self'");
+  res.setHeader("X-Frame-Options", "DENY");
+  next();
+});
+
 const io = new SocketIOServer(server, {
   cors: {
     origin: '*',
@@ -32,51 +36,30 @@ const io = new SocketIOServer(server, {
 });
 handleSocketConnection(io);
 
-// Middleware to parse JSON requests
 app.use(express.json());
 
-// CORS middleware
-app.use(cors({origin: '*', optionsSuccessStatus: 200}));
+app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
 
-// MongoDB connection
 mongoose
-  .connect(
-    process.env.MONGODB_URI || 'mongodb://localhost:27017/carebridge-md'
-  )
+  .connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/carebridge-md')
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// Routes
 app.get('/', (req, res) => {
   res.send('CareBridge MD Backend');
 });
 
-// Authentication routes
 app.use('/api/auth', authRoutes);
-
-// Doctor routes
 app.use('/api/doctors', doctorRoutes);
-
-// Patient routes
 app.use('/api/patients', patientRoutes);
-
-// Appointment routes
 app.use('/api/appointments', appointmentRoutes);
-
 app.use('/documents', documentRoutes);
-
-app.use("/api/meetings", meetingRoutes);
-
-// IntakeForm routes
+app.use('/api/meetings', meetingRoutes);
 app.use('/api/intake-forms', intakeformRoutes);
-
-app.use("/api/prescriptions", prescriptionRoutes);
-app.use("/api/files", fileRoutes);
-
-// HealthRecords routes
+app.use('/api/prescriptions', prescriptionRoutes);
+app.use('/api/files', fileRoutes);
 app.use('/api/health-records', healthRecordsRoutes);
 
-// Start server
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
